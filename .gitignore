@@ -1,0 +1,10 @@
+# 안전망 — 기록 파일은 ~/.claude/LLM/ 에 생성되므로 원래 여기 없다.
+# 실수로 저장소 안에서 하네스를 돌렸을 때를 대비한 것.
+RULES.md
+FAILLOG.md
+_work.md
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
