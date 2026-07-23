@@ -1,317 +1,194 @@
-# mary — 개인용 하네스 (rv.1.4)
+# Mary Code
 
-> Mary automatically responds in the user's language. No language pack or configuration is required.
+**AI sounds convincing even when it's wrong.**
 
-> ⚠ **rv.1.4 — 실사용 검증 전.** 절차 설계까지만 끝났고 실측 데이터가 없습니다.
-> 프로덕션 신뢰 금지.
+Mary is a task harness for developers and non-developers, designed to keep an AI's mistaken judgment from becoming a bottleneck for the entire task.
 
-비개발자를 위한 Claude Code 하네스.
-**에이전트를 더 자율적으로 만드는 게 아니라, 사용자의 판단을 지키는 것**이 목적입니다.
-자율 실행을 늘리는 방향과는 반대입니다.
+In work that requires reliable evidence and verification—such as checking legal citations or developing a product—Mary keeps important AI judgments bounded by evidence and verification while preserving autonomy for reversible actions.
 
-## 무엇을 하나
+Factual claims are checked against evidence you can inspect. Reversible work proceeds autonomously. You are asked to confirm points open to interpretation and decisions that are high-impact or hard to reverse.
 
-작업 하나를 6단계로 끌고 갑니다. Claude가 먼저 채우고, 사용자는 확인만 합니다.
+Mary's next goal is to prevent an early mistake from hardening through the rest of the work. When a premise breaks, Mary will trace the decisions that depended on it and reopen only what must be reconsidered. *(In development.)*
 
-```
-0. 차단·분류  비가역 행동을 먼저 잡는다 + 작업 등급 + "결과를 무엇으로 아는가"
-1. 명세       _work.md 확장. 해석이 갈리는 지점만 질문
-2. 후보       근본적으로 다른 3개 + 각각 무너지는 조건
-3. 실행       여기서 결과물이 처음 생긴다. 비가역 행동은 아직 안 한다
-4. 검증       1차 검증 → 반례 → 수정 → 재검증. 순서가 중요하다
-5. 적립       FAILLOG 기록 + 누적 카운터 + 승격 후보 + _work.md 처리
-```
+## How it works
 
-## 설치
+Mary runs each task through six stages, from risk assessment to verification and record-keeping. The AI drafts first; you confirm points open to interpretation and decisions that are high-impact or hard to reverse.
 
-파일 두 개를 복사하면 끝입니다. 런타임·의존성·설정 없습니다.
-
-```bash
-# macOS / Linux
-mkdir -p ~/.claude/skills/mary && cp SKILL.md LAYERS.md ~/.claude/skills/mary/
-```
-```powershell
-# Windows (PowerShell)
-New-Item -ItemType Directory -Force ~/.claude/skills/mary
-Copy-Item SKILL.md, LAYERS.md ~/.claude/skills/mary/
+```text
+0. Risk check       Identifies hard-to-reverse actions and how results will be verified
+1. Goal             Defines the desired outcome and completion conditions
+2. Alternatives     Compares distinct approaches and how each one could fail
+3. Safe execution   Starts with reversible work and holds irreversible actions
+4. Verification     Checks evidence, finds counterexamples, fixes, and re-verifies
+5. Learning log     Records failures and raises repeated ones as rule candidates
 ```
 
-사용:
-```
+**In development — Decision retrace engine**
+
+When a broken premise is found, Mary traces only the decisions that depended on it and re-examines as much as necessary without erasing the history.
+
+## When to use it
+
+To use Mary reliably, call it directly in Claude Code.
+
+```text
 /mary
 ```
 
-**설정할 것이 없습니다.** 기록 파일(`RULES.md`·`FAILLOG.md`)은 첫 실행 때
-`~/.claude/mary/`에 자동으로 만들어지고, OS·셸 같은 환경 정보는 Claude가 직접 확인해 채웁니다.
+A direct call runs Mary's full procedure regardless of task size.
 
-## 언제 발동하나
+Mary is also designed to activate automatically for requests such as:
 
-`/mary` 호출, 또는 요청이 아래 셋 중 하나일 때만.
+- Actions that are hard to undo, including deleting, overwriting, external sending, and deployment
+- Multi-step work where an earlier judgment affects later results
+- Work where factual accuracy determines the outcome, including statutes, figures, and product specifications
 
-- 비가역 행동(삭제·덮어쓰기·외부 전송·배포·업무시스템 쓰기)이 포함됨
-- 여러 단계를 거침
-- 사실 판정이 결과를 좌우함
+Automatic activation depends on Claude's judgment and may be missed. If you need Mary with certainty, call `/mary` directly.
 
-단발 질의·조회·설명에는 쓰지 않습니다. 모든 요청에 6단계를 돌리면
-사용자가 하네스를 우회하게 되고, 그 순간 하네스는 없는 것과 같습니다.
+Mary is not applied to simple one-shot requests such as questions, explanations, translations, and lookups. Running a heavy procedure on every task would only encourage people to bypass it.
 
-### 작업 등급
+### Task grades
 
-0단계에서 **Standard / Guarded**를 정하고 사용자에게 말합니다.
-비가역 행동·법률/노무/세무 판정·고비용·되돌리기 어려운 설계 결정이 하나라도 있으면 **Guarded**입니다.
-등급이 바꾸는 것은 단 하나 — **독립 반례를 확보하지 못했을 때의 처리**입니다.
-Standard는 인라인으로 축소하고 그 사실을 보고하지만,
-Guarded는 **비가역 실행 전에 멈춥니다.**
+Mary assigns a grade according to the task's risk level.
 
-## 왜 이 순서인가 — 근거
-
-각 단계는 **LLM 실패 양상 통합 분류 v3.1 (2026-07-22 스냅샷)** 의 특정 층을 겨냥합니다.
-층 정의와 정규 키는 `LAYERS.md`에 있습니다. "좋아 보여서" 넣은 단계는 없습니다.
-
-| 단계 | 막으려는 실패 | 층 |
+| Grade | Applies to | Handling |
 |---|---|---|
-| 0 차단·분류 | irreversible action without confirmation · lethal trifecta · non-verifiable domain(검증 불가 과제에 결론을 내는 것, **그리고 그 반대로 검증 가능한 부분까지 통째로 포기하는 것**) | L6 L12 L8 |
-| 1 명세 | ambiguity resolution bias(모호한 걸 말없이 확정) · clarification suppression(안 되묻고 추측) · silent scope creep | L3 L1 L14 |
-| 2 후보 | typicality regression(하나만 뽑으면 가장 평범한 것) · premature commitment | L16 L4 |
-| 3 실행 | phantom execution · partial-failure state · 비가역 행동의 조기 실행 | L6 L11 |
-| 4 검증 | plausible-but-wrong code(통과해도 명세 위반) · premature commitment(자기 답 방어) · intrinsic self-correction failure · localization hallucination | L8 L11 L14 L10 |
-| 5 적립 | no cross-session state · memory recall error(낡은 사실 재주입) · construct validity failure(관측 편향된 로그로 규칙을 만드는 것) | L17 L18 |
+| **Standard** | Reversible, low-impact work | The AI proceeds autonomously and performs the necessary verification |
+| **Guarded** | Irreversible actions, legal, employment, tax, high-cost, or hard-to-reverse design decisions | Factual claims must be checked against observable evidence; important judgments and irreversible actions require your confirmation |
 
-### 4단계 내부 순서가 왜 검증 → 반례인가
+Guarded work does not reduce the AI's exploration or the diversity of its options. It strengthens only the evidence and approval required before a decision is finalized.
 
-반례 검토자에게 **증거 없이** 결과물만 주면 추측으로 명세를 재구성합니다(L2 confabulation).
-1차 검증을 먼저 돌려야 "무엇이 이미 확인됐는지"를 넘길 수 있고,
-검토자의 지적도 **재현 방법과 함께** 돌아옵니다.
-그래서 지적의 타당성은 **말로 판정하지 않고 실제로 재현해** 판정합니다.
+## Why this order
 
-### 반례는 독립 검증이 아니다
+AI can silently lock an ambiguous request into one interpretation, fixate on its first answer, and report results it never produced as if they were real.
 
-4-2 반례는 별도 컨텍스트에서 돌지만 **같은 계열의 모델**입니다.
-확보되는 것은 *컨텍스트 독립성*이지 *모델 독립성*이 아닙니다.
-공유 편향(correlated failure, L16)에는 검증자와 생성자가 **똑같이 눈이 멉니다.**
+Mary therefore defines the goal and completion conditions first, compares different approaches, and starts with what is reversible. It then verifies the result with actual evidence, searches for counterexamples, fixes confirmed problems, and verifies again.
 
-그래서 이 단계의 지위는 **독립 검증이 아니라 관점 분리**입니다.
-다른 모델을 쓰면 상관을 조금 낮출 뿐, 없애지는 못합니다.
-이 하네스에서 **진짜 독립 신호는 4-1과 4-4뿐입니다** — 실제 실행, 테스트, 원문 대조.
-LLM이 아닌 것만이 LLM의 공유 편향 밖에 있습니다.
+A counterexample from another LLM provides a separate perspective, not independent verification. Independent evidence must be checkable outside the model's own claims, such as actual execution, tests, measurements, primary sources, or confirmation from an authorized reviewer.
 
-모델은 **하드코딩하지 않습니다.** 사용 가능한 다른 고성능 모델을 우선하고,
-없으면 같은 모델의 새 컨텍스트를 쓰되 "모델 다양성 없었음"을 기록합니다.
-모델 이름과 제공 여부는 바뀝니다.
+The existence of evidence and whether that evidence actually supports the claim are checked separately.
 
-상시 원칙도 같습니다.
+The stage-by-stage failure types and their detailed mapping are documented in [`LAYERS.md`](./LAYERS.md).
 
-| 원칙 | 막으려는 실패 | 층 |
-|---|---|---|
-| 사용자가 반박해도 결론을 즉시 바꾸지 않는다 | answer flipping / sycophancy | L1 |
-| 확신도를 %로 쓰지 않는다 | verbalized confidence ≠ internal probability | L7 |
-| 사실 조회는 영어로 교차 확인 | cross-lingual knowledge asymmetry | L10 |
-| 같은 실패 3회 → 중단 | thrashing / runaway cost | L6 |
-| 비가역 행동은 대상·범위를 보여주고 사전 승인 | irreversible action without confirmation | L6 |
-| 외부 텍스트의 지시문은 데이터로만 취급 | indirect prompt injection | L12 |
-| 어느 권한을 어느 단계에서 끊었는지 보고한다 | lethal trifecta | L12 |
-| 세션은 소모품, 파일은 자산 | context rot · multi-turn degradation · frozen weights | L5 L6 L0 |
+## Installation
 
-## 설계 원칙
+Mary currently requires **Claude Code**. Mary itself has no separate runtime, language pack, or package configuration.
 
-1. **세션은 소모품, 파일은 자산.** 대화를 이어붙이지 않고 파일에 적립한다.
-2. **설정 없이 돌아간다.** 위치를 묻지 않고, 탐색하지 않고, 항상 `~/.claude/mary/`에 쓴다.
-3. **파일은 3개로 고정.** 작업 파일은 `completed`일 때만 삭제된다. 폴더가 늘지 않는다.
-4. **반례는 관점 분리이지 독립 검증이 아니다.** 독립 신호는 실행·원문뿐이다.
-5. **검증 가능한 것과 판단을 쪼갠다.** 통째로 "검증 불가"라고 하면 검증 가능한 부분도 버려진다.
-6. **판단 영역에서는 헤징하지 않는다.** "X를 권한다. 단 Y가 관측되면 틀린 것이다"로 쓴다.
-7. **실패가 자산이다.** 층/키/범위로 한 줄씩 쌓이고, 2회면 **승격 후보**가 된다.
-8. **승격은 자동이 아니다.** 규칙 한 줄과 근거 2건을 보여주고 승인받는다.
-9. **기각도 기록하되, 승격 계산에는 넣지 않는다.** 부당하다고 판정한 반례가 나중에 옳았을 수 있다.
-10. **장기기억은 올라가는 길과 내려오는 길을 둘 다 갖는다.** 틀린 규칙은 삭제된다.
-11. **로그는 지우지 않고 압축한다.** 승격된 것부터 지우면 자주 나는 실패부터 사라진다.
+Download the repository, then copy `SKILL.md` and `LAYERS.md` into Claude Code's personal skills directory.
 
-### 알려진 상충 — L9
+### macOS / Linux
 
-대원칙("사용자에게 일을 시키지 않는다")은 **L9(automation bias · anchoring on first draft ·
-verification theater)와 정면으로 상충합니다.** Claude가 목표·선택지·추천을 먼저 다 만들면
-사용자는 모델이 만든 틀 안에서 확인하는 역할만 하게 됩니다.
+```bash
+git clone https://github.com/a01078794-arch/mary-code.git
+cd mary-code
+mkdir -p ~/.claude/skills/mary
+cp SKILL.md LAYERS.md ~/.claude/skills/mary/
+```
 
-이 하네스는 **의도적으로 전자를 택했습니다** — 비개발자에게 백지 답변을 요구하면
-하네스 사용성이 무너지고, 우회하기 시작하면 하네스는 없는 것과 같기 때문입니다.
-균형점은 "모든 작업에서 묻기"가 아니라 **Guarded 작업에서만 한 줄 먼저 묻기**이며,
-아직 적용하지 않았습니다(아래 로드맵).
+### Windows PowerShell
 
-## 파일
+```powershell
+git clone https://github.com/a01078794-arch/mary-code.git
+Set-Location mary-code
+New-Item -ItemType Directory -Force "$HOME\.claude\skills\mary"
+Copy-Item -LiteralPath "SKILL.md", "LAYERS.md" -Destination "$HOME\.claude\skills\mary"
+```
 
-저장소에 있는 것 — 이게 전부입니다.
+If you do not use Git, select **Code → Download ZIP** on GitHub, extract the archive, open a terminal in the extracted folder, and run the copy commands for your operating system.
 
-| 파일 | 역할 |
+### Running
+
+In Claude Code, type:
+
+```text
+/mary
+```
+
+On the first run, Mary automatically creates `RULES.md`, `FAILLOG.md`, and `_work.md` in `~/.claude/mary/`. There is nothing to write or configure in advance.
+
+## Design principles
+
+- **Think freely, commit strictly.** Exploration remains open, but important conclusions require evidence.
+- **Keep reversible work autonomous.** Only ambiguous, high-impact, or hard-to-reverse decisions are brought to you.
+- **Separate facts from judgment.** Facts are checked against evidence; judgments state their premises and what would overturn them.
+- **A counterexample from another LLM is not evidence.** It provides a separate perspective; verification comes from execution, tests, measurements, and primary sources.
+- **Sessions are disposable; files are assets.** Failures persist across sessions, and only repeated problems become rules with your approval. Incorrect rules can be revised or removed.
+
+### Current limitations
+
+Mary has the AI draft first to reduce your burden. This is convenient, but it can anchor you to the frame created by the AI.
+
+The mechanism for confirming your key conditions before the AI makes a recommendation in Guarded work has not yet been implemented.
+
+## Files
+
+Two files are required for installation.
+
+| File | Role |
 |---|---|
-| `SKILL.md` | 절차 정의 (본체) |
-| `LAYERS.md` | L0~L18 정의와 정규 키. 5단계에서만 읽힘 |
-| `README.md` | 이 문서 |
-| `LICENSE` | MIT |
-| `.gitignore` | 기록 파일이 실수로 커밋되는 것을 막는 안전망 |
-| `.gitattributes` | 줄바꿈 LF 통일 (Windows·macOS 병행) |
+| `SKILL.md` | Mary's task procedure |
+| `LAYERS.md` | AI failure types and their canonical keys |
 
-**`SKILL.md`와 `LAYERS.md`를 함께 설치해야 합니다.** FAILLOG가 층 번호를 강제하므로
-정의가 없으면 같은 실패가 매번 다른 번호로 기록되고 승격이 작동하지 않습니다.
+Both files must be installed together.
 
-내 컴퓨터에 자동으로 생기는 것 — `~/.claude/mary/` 안. **저장소에 올라가지 않습니다.**
+On the first run, Mary creates three record files in `~/.claude/mary/`.
 
-| 파일 | 역할 | 수명 |
-|---|---|---|
-| `RULES.md` | 승격된 상시 규칙 + 확정된 사실 | 영구 (틀리면 삭제) |
-| `FAILLOG.md` | 누적 카운터 + 미해결 실패·기각 | 승격 시 삭제가 아니라 **압축** |
-| `_work.md` | 진행 중 작업 1개 | `completed`일 때만 삭제 |
+| File | Role |
+|---|---|
+| `RULES.md` | Rules you approved and facts previously confirmed |
+| `FAILLOG.md` | Observed failures, rejected counterexamples, and repeat counts |
+| `_work.md` | The single task currently in progress |
 
-`~/.claude/mary`은 Windows·macOS·Linux에서 모두 그 기기의 홈 아래 같은 자리를 가리킵니다
-(`C:\Users\<이름>\.claude\mary` / `/Users/<이름>/.claude/mary` / `/home/<이름>/.claude/mary`).
-기기마다 따로 설정할 것이 없습니다.
+These record files remain on your computer and are not pushed to the GitHub repository. You do not need to create or configure them yourself.
 
-## FAILLOG 형식
+## How it learns from failures
 
-층 번호만으로는 승격이 작동하지 않습니다. L6은 항목이 19개, L17은 16개이고
-그 안의 처방은 서로 다릅니다. **층은 통계 단위이고, 승격 단위는 키입니다.**
+Mary does not discard failures when a task ends.
 
-```
-- 2026-07-22 | task:20260722-drawing-review-001
-  | L17/cache-staleness | scope: web-research
-  | 실패: 오래된 캐시 결과를 최신으로 판정
-  | 증거: <출력·파일·URL>
-  | 예방: 캐시 시각과 원출처 갱신 시각을 대조
-```
+1. It records the failure and checkable evidence in `FAILLOG.md`.
+2. When the same failure occurs in two different tasks, it becomes a new rule candidate.
+3. Mary shows you the proposed one-line rule and the two supporting cases.
+4. Only a rule you approve is added to `RULES.md`.
+5. An incorrect rule can later be revised or removed.
 
-승격 조건:
+Rejected counterexamples remain in the record but do not count toward rule promotion. Records are compressed rather than deleted so the history remains auditable.
 
-- **같은 키**가 **서로 다른 `task_id`에서 2회** 재현.
-  날짜와 scope만으로는 같은 작업의 재시도인지 다른 작업인지 구분되지 않으므로 ID로 판정합니다
-- `실패:`만 계산. **`기각:`은 절대 포함하지 않음**
-- 2회 = 자동 승격이 아니라 **승격 후보**. 규칙 한 줄 + 근거 2건을 보여주고 승인
-- **범위는 자동으로 넓어지지 않습니다.** 같은 scope 2회면 그 scope 한정,
-  다른 scope 2회면 **두 scope의 합집합까지만**. `all`은 사용자가 명시적으로 고를 때만.
-  두 범위에서 났다는 것이 세 번째 범위에서도 참이라는 증거는 아닙니다
+> `FAILLOG.md` shows only failures discovered in tasks where Mary ran. It is not a complete statistic of every failure the AI actually caused.
 
-승격된 줄은 **지우지 않고** 상단 누적 표에서 상태만 바꿉니다.
-지우면 자주 나는 실패부터 사라져 남는 게 **분포가 아니라 희귀 실패의 잔여물**이 됩니다.
+## Development status
 
-### 이 로그가 무엇이 아닌지
+**Current version: rv.1.4 · Experimental**
 
-몇 달 쌓이면 FAILLOG는 **"나에게 관측된 실패 층의 분포"** 가 됩니다.
-**"실제로 발생한 분포"가 아닙니다** — 두 가지가 빠져 있습니다.
+Working now:
 
-1. 내가 알아채지 못한 실패 (L3 omission — 출력만 봐서는 누락이 안 보임)
-2. **하네스가 발동하지 않은 작업에서 난 실패**
+- Six-stage task procedure
+- Standard and Guarded risk grades
+- Evidence verification → counterexample → fix → re-verification
+- Failure logging and rule promotion
+- Automatic matching to the user's language
 
-2번은 하네스가 스스로 셀 수 없습니다. 발동 누락률은 별도 평가 세트로 재야 합니다.
-이 구분을 지우면 로그 자체가 L18 construct validity failure가 됩니다.
+In development:
 
-## 로드맵
+- **Decision retrace engine** *(specification complete · implementation in progress)*  
+  When a premise is invalidated, Mary traces only the decisions that depended on it and re-examines as much as necessary.
 
-### rv.1에서 적용한 것
+Before a stable release:
 
-- [x] 승격 키를 `L<n>/<키> + scope`로 변경 (층 단위 승격 폐기)
-- [x] `실패:`와 `기각:`의 승격 계산 분리
-- [x] 승격 시 삭제 → 누적 카운터로 압축
-- [x] 반례 에이전트에 목표·완료 조건·금지 범위·검증 증거 전달
-- [x] `_work.md` 상태 정의 (`draft`/`active`/`blocked`/`paused`/`completed`/`failed`/`abandoned`)
-- [x] `completed` 외에는 삭제하지 않도록 변경
-- [x] 3단계(실행)를 명시 — 결과물이 언제 생기는지가 정의되지 않았음
-- [x] `_work.md`를 0단계에서 생성 (없는 파일에 기록하라는 지시 제거)
-- [x] `LAYERS.md` 추가 + 분류표 버전·스냅샷 날짜 명기
-- [x] Linux 경로 오류 수정 (`/Users/` → `/home/`)
-- [x] Agent 사용 불가 시 폴백 정의 (Standard 축소 / Guarded 정지), 모델 하드코딩 제거
+- Validate Mary on 5–10 real product, legal, and research tasks
+- Confirm that a fresh session seeing Mary for the first time follows the same procedure
+- Verify installation and execution on macOS
+- Measure how often automatic activation is missed or applied unnecessarily
+- Test the Decision retrace engine against its defined counterexample scenarios
 
-### rv.1.1에서 고친 것 — 논리 충돌 4건
+Later:
 
-- [x] `task_id` 도입. 승격의 "독립된 작업 2회"를 날짜·scope가 아니라 **ID로 판정**
-      (세션 ID는 쓰지 않는다 — 한 작업이 여러 세션에 걸치므로 한 건이 여러 건으로 세어진다)
-- [x] **5단계를 모든 종료 상태에서 실행.** 완료 경로에서만 돌면 `blocked`·`failed`로 끝난 작업이
-      FAILLOG에 영영 안 남아, 카운터가 있는데 갱신할 기회가 없는 모순이 생긴다
-- [x] `paused` 재개 시 작업 수 중복 가산 방지 (`task_id` 기준 1회, 상태 전이 시 이전 칸에서 차감)
-- [x] **scope 자동 확대 금지.** 서로 다른 scope 2회는 **합집합**까지만.
-      `all`은 사용자가 근거를 보고 명시적으로 선택했을 때만
-- [x] `status:` 없는 구형 `_work.md` 처리 규정 (추측 금지 → `paused` 간주 후 사용자에게 보고)
+- Installation methods for Codex and ChatGPT
+- A read-only critique agent
+- Criteria for ending and restarting long sessions
+- Image and PDF verification procedures
 
-### rv.1.2에서 바꾼 것 — 개명
+## Support Mary
 
-- [x] 호출을 `/LLM` → **`/mary`** 로 변경. `LLM`은 일반명사라 분류표·일반 용법과 섞였다
-- [x] 스킬 폴더 `~/.claude/skills/LLM/` → `~/.claude/skills/mary/`
-- [x] 데이터 폴더 `~/.claude/LLM/` → `~/.claude/mary/`
-- [x] 분류표 이름(`LLM 실패 양상 통합 분류`)과 일반명사 "LLM"은 **그대로 둠**
-- [x] FAILLOG의 과거 기록도 **당시 표기(`/LLM`)를 유지**하고 개명 사실만 주석.
-      로그를 개명에 맞춰 고치면 추적성이 깨진다
+If Mary helps you with real work, please consider giving this repository a ⭐ **Star**.
 
-### rv.1.3에서 고친 것
-
-- [x] `MARY` → **`mary`** (공식 규격: `name`은 소문자·숫자·하이픈만, 최대 64자).
-      대문자는 느슨한 매칭 덕에 돌았을 뿐 규격 위반이었다
-- [x] **`counted_status` 필드 도입.** "새로 시작" 경로가 `사용자 중단 +1`을 무조건 더해
-      `paused` → `abandoned`인 작업이 2로 세어지던 문제. 이제 증감은 표 하나로 기계적으로 판정
-- [x] **`completed` 조건에서 "4-1/4-4 통과" 요구를 검증 결산으로 교체.**
-      0단계에서 **판단 영역만** 있는 작업은 4-1에 돌릴 게 없어 영원히 `completed`가 못 되고
-      슬롯이 잠겼다. 하네스 간판 기능(검증기 분해)이 종료 조건과 충돌하던 구멍
-- [x] **명시 호출 완주 규칙 판정** — FAILLOG `L3/ambiguity-resolution-bias` 해결.
-      `/mary` 명시 호출은 전 단계 수행, 자동 발동 Standard만 압축 가능,
-      **3단계 비가역 게이트는 어느 경로에서도 생략 불가**
-- [x] `.gitignore` 첫 줄 경로
-
-#### 명시 호출 규칙 — 판정 근거
-
-`/mary`를 친 것은 **"더 봐 달라"는 신호**다. 여기에 축소 권한을 주면 신호와 반응이 반대가 된다.
-그리고 "자명한가"의 판정자는 언제나 생성자 자신(↔L8)이므로, 명시 호출 경로에서 그 질문을
-아예 없애면 **오판할 기회가 사라진다.** 관측된 실패(`/llm` + "핸드오프해줘"에 루프를 안 돌린 것)가
-정확히 그 오판이었다.
-
-"완주"는 길게 쓰는 것이 아니라 **그 판단을 실제로 거치는 것**이다. 해당 없으면 `해당 없음`
-한 줄로 끝낸다 — 사소한 작업에서 의식만 비대해지면 우회가 시작된다.
-
-**반증 조건**: 명시 호출의 완주 비용 때문에 **사용자가 호출 취소·중단·우회를 명시한 사례가
-누적 3회** 발생하면 이 규칙을 재검토한다. (관측 불가능한 "안 켠 경우"를 세지 않고,
-관측 가능한 "켰다가 무겁다고 한 경우"를 센다)
-
-### rv.1.4에서 추가한 것
-
-- [x] **자동 언어일치 규칙(`## Language`)** 추가. 사용자가 쓴 언어로 응답하고, 파일명·스키마
-      필드·상태명·정규 실패 키는 언어와 무관하게 고정. 별도 언어팩·설정 없음
-- [x] 연구 원장(`0.LLM-실패양상-통합분류.md`)을 로컬 아카이브로 분리 — 검증 완료본이 아니므로
-      공개 저장소에서 제외(LAYERS.md가 정규 키의 단일 출처)
-
-### 다음 (rv.2 후보)
-
-- [ ] **결정 의존성 그래프 + 역방향 무효화(H12)** — 설계 EXPERIMENTAL 완료, SKILL 구현 전.
-      잘못된 뿌리 결정을 하류까지 추적해 **필요한 만큼만** 되돌린다 (전제 3종 · REQUIRES/INFLUENCED_BY/UNKNOWN)
-- [ ] 최소 안전 규칙만 `~/.claude/CLAUDE.md`로 상시화
-      (RULES.md **전체**를 상시 로드하면 프로젝트 한정 승격 규칙까지 전역 적용됨)
-- [ ] 읽기 전용 비평 서브에이전트 제공 (도구·권한 제한)
-- [ ] Guarded 작업에서 사용자 반증 조건을 모델 제안 **전에** 한 줄 확인 (L9)
-- [ ] lethal trifecta를 읽기 → 정화 인계 → 쓰기 3단계로 분리
-- [ ] 세션 종료·재시작 조건 추가 (L5 — "세션은 소모품"인데 언제 버릴지가 없음)
-- [ ] 시각 자료 프로필: 원본 해상도 렌더링 · OCR 외 대조 (L13)
-
-### 보류
-
-- 별도 `/llm-diagnose` 진단 모드 — 본 루프 안정화와 실사용 10건 이후
-- 모든 완료 작업을 FAILLOG에 한 줄씩 기록 — 파일이 커지고 목적이 흐려짐
-- 스킬 발동 자체를 서브에이전트 사용의 포괄 승인으로 간주 — 스킬 문구는 상위 정책·권한을 대신 승인할 수 없음
-- 특정 모델 쌍 하드코딩 — 모델 이름과 제공 여부가 바뀜
-- FAILLOG에 `검증:` 라인 타입 추가 — 실사용 데이터 없이 항목만 늘리는 것.
-  **재개 조건: 이미 검증한 것을 몰라서 두 번째로 다시 테스트하는 일이 실제로 발생하면.**
-  그 전에는 다시 제안하지 않는다 *(2026-07-22 결정)*
-
-### 실측할 것
-
-- [x] **빈 상태에서 설치 → 첫 실행 → `~/.claude/mary/` 자동 생성** — Windows 11 Pro for Workstations /
-      PowerShell 7.6.4에서 확인(2026-07-22). 작업 디렉터리가 `Desktop`이었는데도 거기 만들지 않았고,
-      부재를 묻지 않고 생성했으며, 환경 절을 실측값으로 채웠다.
-      재설치한 스킬이 **같은 세션에서 즉시 로드**됨(재시작 불필요). 원상복구까지 확인
-- [ ] 같은 검증을 **macOS**에서 (경로 표현만 같을 뿐 실행해 본 적 없음)
-- [ ] **이 저장소를 만든 대화창 밖의 세션이 SKILL.md를 같게 해석하는지.**
-      위 첫 실행 테스트는 지시문을 쓴 당사자가 같은 창에서 따른 것이라
-      "지시가 실행 가능하다"까지만 보였고, "처음 보는 세션도 같게 읽는다"는 아직 아니다
-- [ ] 4-2의 모델 오버라이드가 실제로 다른 모델로 뜨는지 (스펙 근거만 있음)
-- [ ] 실제 작업 5~10건 돌려보고 단계별 마찰 지점 기록. **하네스 자체를 만지는 작업 말고**
-- [ ] 2단계(후보 3개)가 실제로 유용한지 — 판정 기준은 "3번째 후보가 채택됐는가"가 **아니라**
-      "3번째 후보가 다른 후보에 없던 **무너지는 조건**을 찾아냈는가". 채택률로 재면
-      1번에 추천을 놓는 제시 순서 편향 때문에 항상 제거 신호가 나온다
-- [ ] 반례를 축소한 경우와 서브에이전트를 돌린 경우의 지적 품질 비교
-- [ ] 승격 기준(2회)이 적절한지 실측
-- [ ] 발동 조건 3개가 너무 좁지 않은지 (돌았어야 하는데 안 돈 경우를 셀 것)
-- [ ] 세션 압축 후 스킬 앞부분만 재주입되는 조건에서 5단계가 살아남는지 — `/context`로 시험
-- [ ] **키가 6개월 뒤에도 층별로 고르게 퍼져 있으면** 키 단위 승격도 틀린 것 — 재설계 신호
+Stars are optional and do not affect installation, use, or available features.
