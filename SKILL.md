@@ -3,7 +3,7 @@ name: mary
 description: Lightweight workflow harness for multi-step, high-impact, or evidence-sensitive tasks in Claude Code. Lets the agent proceed autonomously on reversible work, verifies factual claims against observable evidence, and requires user confirmation before irreversible actions or unresolved value decisions. Use when /mary is invoked or when a task is multi-step, irreversible, or fact-dependent. Do not use for simple one-shot questions.
 ---
 
-# mary 하네스 · rv.1.4
+# mary-code · rv.1.4
 
 **대원칙: 사용자에게 일을 시키지 않는다.** Claude가 먼저 채우고, 확인만 받는다.
 질문은 **AskUserQuestion 도구**로 선택지를 준다. 자유 서술을 요구하지 않는다.
