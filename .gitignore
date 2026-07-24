@@ -5,10 +5,8 @@ FAILLOG.md
 _work.md
 approvals.jsonl
 
-# 3자 대화 산출물 — 도구(talk/*.ps1, PROTOCOL.md)는 커밋하되 대화 로그는 제외
-TALK.md
-TALK-ARCHIVE.md
-talk/rounds/
+# 3자 대화 — 개인 검증 도구 + 대화록. 플러그인 사용자에겐 불필요하므로 저장소에 올리지 않는다.
+talk/
 
 # 로컬 전용 정본 초안 (공개 저장소에 올리지 않음)
 Mary-Code-Canonical.md
