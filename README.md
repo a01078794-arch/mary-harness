@@ -72,29 +72,62 @@ The stage-by-stage failure types and their detailed mapping are documented in [`
 
 ## Installation
 
-Mary currently requires **Claude Code**. Mary itself has no separate runtime, language pack, or package configuration.
-
-Download the repository, then copy `SKILL.md` and `LAYERS.md` into Claude Code's personal skills directory.
+Mary requires **Claude Code** and **Node.js** (for the enforcement hook). It ships as a plugin
+containing one skill (the workflow) and one hook (the irreversible-action gate).
 
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/a01078794-arch/mary-code.git
-cd mary-code
-mkdir -p ~/.claude/skills/mary
-cp SKILL.md LAYERS.md ~/.claude/skills/mary/
+git clone https://github.com/a01078794-arch/mary-code.git ~/.claude/skills/mary-code
 ```
 
 ### Windows PowerShell
 
 ```powershell
-git clone https://github.com/a01078794-arch/mary-code.git
-Set-Location mary-code
-New-Item -ItemType Directory -Force "$HOME\.claude\skills\mary"
-Copy-Item -LiteralPath "SKILL.md", "LAYERS.md" -Destination "$HOME\.claude\skills\mary"
+git clone https://github.com/a01078794-arch/mary-code.git "$HOME\.claude\skills\mary-code"
 ```
 
-If you do not use Git, select **Code → Download ZIP** on GitHub, extract the archive, open a terminal in the extracted folder, and run the copy commands for your operating system.
+Plugins in `~/.claude/skills/` auto-load on the next session as `mary-code@skills-dir`.
+Verify with `claude plugin validate ~/.claude/skills/mary-code`.
+
+If you do not use Git, select **Code → Download ZIP** on GitHub and extract it to that path.
+
+## Enforcement boundary — read this before trusting the gate
+
+Mary's gate runs as a `PreToolUse` hook. It classifies irreversible actions (delete, overwrite,
+external send, deploy, business-system write) and escalates them to a user permission prompt
+instead of letting the agent proceed. It is **fail-closed**: if the hook cannot parse its input
+or crashes, it asks rather than allows.
+
+**How strongly that gate is enforced depends entirely on where you install it.**
+
+| Tier | Install location | Can the agent disable it? |
+|---|---|---|
+| **1 · Default** | `~/.claude/skills/mary-code/` | **Yes.** The agent can reach these files with `Bash` and can set `disableAllHooks` in user or project settings. |
+| **2 · Hardened** | Same files, force-enabled from managed settings | **No.** `disableAllHooks` in user/project/local settings cannot disable managed hooks. |
+
+Tier 1 is **not a trust boundary.** It is a speed bump that makes bypass visible rather than
+silent — the gate also fires when something tries to edit the gate's own configuration. That is
+useful, and it is not the same as enforcement. Do not describe a Tier 1 install as "enforced".
+
+To reach Tier 2, add to managed settings — `C:\Program Files\ClaudeCode\managed-settings.json`
+on Windows, `/etc/claude-code/managed-settings.json` on Linux,
+`/Library/Application Support/ClaudeCode/managed-settings.json` on macOS:
+
+```json
+{
+  "enabledPlugins": ["mary-code@skills-dir"],
+  "allowManagedHooksOnly": true
+}
+```
+
+Writing to those paths requires administrator privileges, which is exactly what puts them
+outside the agent's reach. `allowManagedHooksOnly` additionally blocks every user, project, and
+other-plugin hook, so enable it only if you want Mary's gate to be the only hook running.
+
+**Even at Tier 2, Mary is a harness only within its declared observation scope**: registered
+tool calls. Whether a task is multi-step, or whether a factual judgment drives the outcome,
+remains a semantic decision that no external dispatcher can fully make.
 
 ### Running
 
@@ -122,14 +155,15 @@ The mechanism for confirming your key conditions before the AI makes a recommend
 
 ## Files
 
-Two files are required for installation.
+The plugin has five parts. They must be installed together.
 
 | File | Role |
 |---|---|
-| `SKILL.md` | Mary's task procedure |
-| `LAYERS.md` | AI failure types and their canonical keys |
-
-Both files must be installed together.
+| `skills/mary/SKILL.md` | Mary's task procedure |
+| `skills/mary/LAYERS.md` | AI failure types and their canonical keys |
+| `hooks/hooks.json` | Registers the `PreToolUse` gate |
+| `scripts/hooks/mary-irreversible-gate.js` | The gate itself — classifies irreversible actions, fail-closed |
+| `.claude-plugin/plugin.json` | Plugin manifest |
 
 On the first run, Mary creates three record files in `~/.claude/mary/`.
 
@@ -157,7 +191,7 @@ Rejected counterexamples remain in the record but do not count toward rule promo
 
 ## Development status
 
-**Current version: rv.1.4 · Experimental**
+**Current version: rv.1.5 · Experimental**
 
 Working now:
 
@@ -166,6 +200,8 @@ Working now:
 - Evidence verification → counterexample → fix → re-verification
 - Failure logging and rule promotion
 - Automatic matching to the user's language
+- **Irreversible-action gate as an enforced `PreToolUse` hook** — classifies delete/overwrite/send/deploy/business-system-write, escalates to a user prompt, fail-closed
+- **Approval ledger** (`~/.claude/mary/approvals.jsonl`) — binds each approval to its execution result; unresolved approvals are reported at the next session start as `unknown` (never auto-retried)
 
 In development:
 
